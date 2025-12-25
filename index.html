@@ -126,7 +126,6 @@
     // ==========================================
     const ASSETS = {
         music: "./music.mp3"
-        // 图片配置移动到了 loadConfiguredImages 函数中处理
     };
 
     const CONFIG = {
@@ -166,8 +165,8 @@
     let caneTexture, stockingTexture, particleTexture, giftTexture;
     let textPoints = [];
 
-    // 🌟 新增：存储两个纹理对象
     let texPhoto1, texPhoto2;
+    let currentPhotoTex = null; // 追踪当前显示的是哪张图
 
     async function init() {
         initThree();
@@ -181,7 +180,6 @@
         createDust();
         createLetter();
 
-        // 加载图片
         loadConfiguredImages();
 
         setupPostProcessing();
@@ -196,7 +194,6 @@
         animate();
     }
 
-    // --- 字体生成 ---
     function generateTextPoints(text) {
         return new Promise((resolve) => {
             const canvas = document.createElement('canvas');
@@ -534,21 +531,18 @@
         }
     }
 
-    // 🌟 更新：手动加载两张图片
     function loadConfiguredImages() {
         const loader = new THREE.TextureLoader();
-
-        // 加载默认照片 photo.jpg
         loader.load("./photo.jpg", (texture) => {
             texture.colorSpace = THREE.SRGBColorSpace;
             texPhoto1 = texture;
-            addPhotoToScene(texture); // 初始创建时使用 photo.jpg
+            currentPhotoTex = texture;
+            addPhotoToScene(texture);
         }, undefined, (err) => { console.warn("Error loading photo.jpg"); });
 
-        // 预加载第二张照片 photo2.jpeg
         loader.load("./photo2.jpeg", (texture) => {
             texture.colorSpace = THREE.SRGBColorSpace;
-            texPhoto2 = texture; // 存起来，之后手势触发时用
+            texPhoto2 = texture;
         }, undefined, (err) => { console.warn("Error loading photo2.jpeg"); });
     }
 
@@ -557,20 +551,51 @@
         let width = 1.5; let height = 1.5;
         const aspect = img.width / img.height;
         if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
+        
         const photoGeo = new THREE.PlaneGeometry(width, height);
         const photoMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
         const photo = new THREE.Mesh(photoGeo, photoMat); 
         photo.position.z = 0.05;
-        // 🌟 新增：给照片Mesh一个名字，方便后续找到它
         photo.name = 'photoContent'; 
 
         const frameGeo = new THREE.BoxGeometry(width + 0.1, height + 0.1, 0.05);
         const frameMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.champagneGold, metalness: 1.0, roughness: 0.2 });
         const frame = new THREE.Mesh(frameGeo, frameMat);
+        frame.name = 'photoFrame'; // 🌟 命名相框，方便后续调整
         
         const group = new THREE.Group(); group.add(frame); group.add(photo);
         const s = 0.8; group.scale.set(s,s,s);
         photoMeshGroup.add(group); particleSystem.push(new Particle(group, 'PHOTO', false));
+    }
+
+    // 🌟 核心修复功能：动态更新几何体尺寸以适应新图片
+    function updatePhotoVisuals(group, texture) {
+        if (!group || !texture || !texture.image) return;
+
+        // 1. 计算新尺寸
+        const img = texture.image;
+        let width = 1.5; let height = 1.5;
+        const aspect = img.width / img.height;
+        if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
+
+        // 2. 找到 Mesh
+        const photo = group.getObjectByName('photoContent');
+        const frame = group.getObjectByName('photoFrame');
+
+        // 3. 重建几何体 (最稳健的方法)
+        if (photo) {
+            photo.geometry.dispose(); // 清理旧内存
+            photo.geometry = new THREE.PlaneGeometry(width, height);
+            photo.material.map = texture;
+            photo.material.needsUpdate = true;
+        }
+
+        if (frame) {
+            frame.geometry.dispose(); // 清理旧内存
+            frame.geometry = new THREE.BoxGeometry(width + 0.1, height + 0.1, 0.05);
+        }
+        
+        currentPhotoTex = texture;
     }
 
     function tryPlayMusic() {
@@ -601,7 +626,6 @@
         requestAnimationFrame(predictWebcam);
     }
 
-    // 🌟 更新：手势逻辑中加入图片切换
     function processGestures(result) {
         if (result.landmarks && result.landmarks.length > 0) {
             STATE.hand.detected = true;
@@ -622,10 +646,9 @@
                     const photos = particleSystem.filter(p => p.type === 'PHOTO');
                     if(photos.length) {
                         STATE.focusTarget = photos[Math.floor(Math.random()*photos.length)].mesh;
-                        // 切换回 photo1
-                        if(texPhoto1) {
-                            const plane = STATE.focusTarget.getObjectByName('photoContent');
-                            if(plane) plane.material.map = texPhoto1;
+                        // 🌟 切换回 photo1 并调整相框尺寸
+                        if(texPhoto1 && currentPhotoTex !== texPhoto1) {
+                            updatePhotoVisuals(STATE.focusTarget, texPhoto1);
                         }
                     }
                 }
@@ -637,10 +660,9 @@
                     const photos = particleSystem.filter(p => p.type === 'PHOTO');
                     if(photos.length) {
                         STATE.focusTarget = photos[0].mesh;
-                        // 切换到 photo2
-                        if(texPhoto2) {
-                            const plane = STATE.focusTarget.getObjectByName('photoContent');
-                            if(plane) plane.material.map = texPhoto2;
+                        // 🌟 切换到 photo2 并调整相框尺寸
+                        if(texPhoto2 && currentPhotoTex !== texPhoto2) {
+                            updatePhotoVisuals(STATE.focusTarget, texPhoto2);
                         }
                     }
                 }
