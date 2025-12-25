@@ -125,13 +125,11 @@
     // ⚙️ 配置区域
     // ==========================================
     const ASSETS = {
-        music: "./music.mp3",
-        images: ["./photo.jpg"]
+        music: "./music.mp3"
     };
 
     const CONFIG = {
         colors: {
-            
             bg: 0x000000,
             champagneGold: 0xffd966,
             deepGreen: 0x03180a,
@@ -158,7 +156,7 @@
 
     let scene, camera, renderer, composer;
     let mainGroup, fireworkGroup;
-    let letterMesh;
+    let letterMesh, snowMesh; // 🌟 Added snowMesh
     let clock = new THREE.Clock();
     let particleSystem = [];
     let fireworks = [];
@@ -166,6 +164,9 @@
     let handLandmarker, video, webcamCanvas;
     let caneTexture, stockingTexture, particleTexture, giftTexture;
     let textPoints = [];
+
+    let texPhoto1, texPhoto2;
+    let currentPhotoTex = null; 
 
     async function init() {
         initThree();
@@ -177,6 +178,7 @@
         createHighQualityTextures();
         createParticles();
         createDust();
+        createSnow(); // 🌟 Create Snow
         createLetter();
 
         loadConfiguredImages();
@@ -193,7 +195,6 @@
         animate();
     }
 
-    // --- 字体生成 ---
     function generateTextPoints(text) {
         return new Promise((resolve) => {
             const canvas = document.createElement('canvas');
@@ -347,6 +348,42 @@
         scene.add(letterMesh);
     }
 
+    // 🌟 新增：创建下雪特效
+    function createSnow() {
+        const count = 2000; 
+        const positions = new Float32Array(count * 3);
+        const velocities = []; 
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 100; // X spread
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 60 + 20; // Y spread (high up)
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 60; // Z spread
+            velocities.push({
+                y: -(0.5 + Math.random() * 1.5), 
+                x: (Math.random() - 0.5) * 0.2, 
+                z: (Math.random() - 0.5) * 0.2
+            });
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.userData = { velocities: velocities };
+
+        const mat = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.8,
+            map: particleTexture, // 复用现有的柔和粒子纹理
+            transparent: true,
+            opacity: 0.8,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        snowMesh = new THREE.Points(geo, mat);
+        // 不添加到 mainGroup，直接加到 scene，避免随树旋转
+        scene.add(snowMesh); 
+    }
+
     class Particle {
         constructor(mesh, type, isDust = false) {
             this.mesh = mesh; this.type = type; this.isDust = isDust;
@@ -396,18 +433,15 @@
                 if(this.type === 'PHOTO') targetScale = this.baseScale * 1.2;
             }
             else if (mode === 'LETTER') {
-                // 🌟 新增逻辑：在 LETTER 模式下，照片移动到右侧
                 if (this.mesh === focusTargetMesh) {
-                    // 坐标：右侧 (x=8), 高度适中 (y=0), 靠近相机 (z=25)
                     const desiredWorldPos = new THREE.Vector3(8, 0, 25);
-                    // 转换为相对于主组的本地坐标
                     const invMatrix = new THREE.Matrix4().copy(mainGroup.matrixWorld).invert();
                     target = desiredWorldPos.applyMatrix4(invMatrix);
-                    targetScale = 3.5; // 放大照片
+                    targetScale = 3.5; 
                     lerpSpeed = 4.0;
-                    this.mesh.lookAt(camera.position); // 照片面向相机
+                    this.mesh.lookAt(camera.position);
                 } else {
-                    target = this.posScatter; // 其他粒子散开
+                    target = this.posScatter;
                 }
             }
             else if (mode === 'TEXT') {
@@ -536,30 +570,71 @@
 
     function loadConfiguredImages() {
         const loader = new THREE.TextureLoader();
-        if (ASSETS.images && ASSETS.images.length > 0) {
-            ASSETS.images.forEach(path => {
-                loader.load(path, (texture) => {
-                    texture.colorSpace = THREE.SRGBColorSpace;
-                    addPhotoToScene(texture);
-                }, undefined, (err) => { console.warn("Could not load default image:", path); });
-            });
-        }
+        loader.load("./photo.jpg", (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texPhoto1 = texture;
+            currentPhotoTex = texture;
+            addPhotoToScene(texture);
+        }, undefined, (err) => { console.warn("Error loading photo.jpg"); });
+
+        loader.load("./photo2.jpeg", (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace;
+            texPhoto2 = texture;
+        }, undefined, (err) => { console.warn("Error loading photo2.jpeg"); });
     }
 
     function addPhotoToScene(texture) {
         const img = texture.image;
         let width = 1.5; let height = 1.5;
-        const aspect = img.width / img.height;
-        if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
+        if(img && img.width && img.height) {
+            const aspect = img.width / img.height;
+            if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
+        }
+        
         const photoGeo = new THREE.PlaneGeometry(width, height);
         const photoMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
-        const photo = new THREE.Mesh(photoGeo, photoMat); photo.position.z = 0.05;
+        const photo = new THREE.Mesh(photoGeo, photoMat); 
+        photo.position.z = 0.05;
+        photo.name = 'photoContent'; 
+
         const frameGeo = new THREE.BoxGeometry(width + 0.1, height + 0.1, 0.05);
         const frameMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.champagneGold, metalness: 1.0, roughness: 0.2 });
         const frame = new THREE.Mesh(frameGeo, frameMat);
+        frame.name = 'photoFrame'; 
+        
         const group = new THREE.Group(); group.add(frame); group.add(photo);
         const s = 0.8; group.scale.set(s,s,s);
         photoMeshGroup.add(group); particleSystem.push(new Particle(group, 'PHOTO', false));
+    }
+
+    function updatePhotoVisuals(group, texture) {
+        if (!group || !texture || !texture.image) return;
+
+        const imgWidth = texture.image.width;
+        const imgHeight = texture.image.height;
+        if (!imgWidth || !imgHeight) return;
+
+        const aspect = imgWidth / imgHeight;
+        const baseHeight = 1.5; 
+        const geomWidth = baseHeight * aspect; 
+        const geomHeight = baseHeight;
+
+        const photo = group.getObjectByName('photoContent');
+        if (photo) {
+            photo.geometry.dispose(); 
+            photo.geometry = new THREE.PlaneGeometry(geomWidth, geomHeight);
+            photo.material.map = texture;
+            photo.material.needsUpdate = true;
+        }
+
+        const frame = group.getObjectByName('photoFrame');
+        if (frame) {
+            frame.geometry.dispose();
+            const border = 0.15;
+            frame.geometry = new THREE.BoxGeometry(geomWidth + border, geomHeight + border, 0.05);
+        }
+        
+        currentPhotoTex = texture;
     }
 
     function tryPlayMusic() {
@@ -603,26 +678,32 @@
             const pinkyOpen = isFingerOpen(20, 18);
             const pinchDist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
 
-            // 1. 抓取 (Pinch) -> Focus 独照 (保持不变)
             if (pinchDist < 0.08) {
                 if (STATE.mode !== 'FOCUS') {
                     STATE.mode = 'FOCUS';
                     const photos = particleSystem.filter(p => p.type === 'PHOTO');
-                    if(photos.length) STATE.focusTarget = photos[Math.floor(Math.random()*photos.length)].mesh;
+                    if(photos.length) {
+                        STATE.focusTarget = photos[Math.floor(Math.random()*photos.length)].mesh;
+                        if(texPhoto1 && currentPhotoTex !== texPhoto1) {
+                            updatePhotoVisuals(STATE.focusTarget, texPhoto1);
+                        }
+                    }
                 }
             }
-            // 2. 💌 比“1” -> 打开信件 + 展示照片 (新功能)
             else if (indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
-                STATE.mode = 'LETTER';
-                // 🌟 新增：找到照片粒子并设置为 focusTarget，以便 Particle.update 将其移动到旁边
-                const photos = particleSystem.filter(p => p.type === 'PHOTO');
-                if(photos.length) STATE.focusTarget = photos[0].mesh;
+                if (STATE.mode !== 'LETTER') {
+                    STATE.mode = 'LETTER';
+                    const photos = particleSystem.filter(p => p.type === 'PHOTO');
+                    if(photos.length) {
+                        STATE.focusTarget = photos[0].mesh;
+                        if(texPhoto2 && currentPhotoTex !== texPhoto2) {
+                            updatePhotoVisuals(STATE.focusTarget, texPhoto2);
+                        }
+                    }
+                }
             }
-            // 3. ✌️ 比耶 -> 文字 + 烟花
             else if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) { STATE.mode = 'TEXT'; STATE.focusTarget = null; }
-            // 4. 五指张开 -> 散开
             else if (indexOpen && middleOpen && ringOpen && pinkyOpen) { STATE.mode = 'SCATTER'; STATE.focusTarget = null; }
-            // 5. 握拳 -> 树
             else if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) { STATE.mode = 'TREE'; STATE.focusTarget = null; }
         } else { STATE.hand.detected = false; }
     }
@@ -657,18 +738,41 @@
 
         particleSystem.forEach(p => p.update(dt, STATE.mode, STATE.focusTarget));
 
+        // 🌟 新增：下雪动画逻辑
+        if(snowMesh) {
+            // 只在 TREE 模式下显示
+            if (STATE.mode !== 'TREE') {
+                snowMesh.visible = false;
+            } else {
+                snowMesh.visible = true;
+                const positions = snowMesh.geometry.attributes.position.array;
+                const velocities = snowMesh.geometry.userData.velocities;
+
+                for(let i=0; i<velocities.length; i++) {
+                    // Update Y
+                    positions[i*3 + 1] += velocities[i].y * dt * 5.0; 
+                    // Update X (wind)
+                    positions[i*3] += velocities[i].x * dt * 5.0;
+
+                    // Reset if too low
+                    if(positions[i*3 + 1] < -30) {
+                        positions[i*3 + 1] = 40;
+                        positions[i*3] = (Math.random() - 0.5) * 100;
+                    }
+                }
+                snowMesh.geometry.attributes.position.needsUpdate = true;
+            }
+        }
+
         if (letterMesh) {
             if (STATE.mode === 'LETTER') {
                 letterMesh.visible = true;
-                // 🌟 修改：信件移动到左侧 (x = -6)，与右侧的照片形成对比
                 letterMesh.position.lerp(new THREE.Vector3(-6, 0, 10), 3.0 * dt);
                 letterMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 3.0 * dt);
                 letterMesh.rotation.y = Math.sin(clock.elapsedTime * 0.5) * 0.05; 
-                // 稍微修正朝向，使其看起来自然
                 letterMesh.lookAt(camera.position.x - 2, camera.position.y, camera.position.z);
             } else {
                 letterMesh.scale.lerp(new THREE.Vector3(0, 0, 0), 5.0 * dt);
-                // 重置位置回中心，方便下次动画
                 letterMesh.position.lerp(new THREE.Vector3(0, 0, 0), 5.0 * dt); 
                 if(letterMesh.scale.x < 0.01) letterMesh.visible = false;
             }
