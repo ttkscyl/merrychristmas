@@ -166,7 +166,7 @@
     let textPoints = [];
 
     let texPhoto1, texPhoto2;
-    let currentPhotoTex = null; // 追踪当前显示的是哪张图
+    let currentPhotoTex = null; 
 
     async function init() {
         initThree();
@@ -537,6 +537,7 @@
             texture.colorSpace = THREE.SRGBColorSpace;
             texPhoto1 = texture;
             currentPhotoTex = texture;
+            // 初始加载时先用第一张图
             addPhotoToScene(texture);
         }, undefined, (err) => { console.warn("Error loading photo.jpg"); });
 
@@ -547,10 +548,13 @@
     }
 
     function addPhotoToScene(texture) {
+        // 初始逻辑，之后会被 updatePhotoVisuals 覆盖
         const img = texture.image;
         let width = 1.5; let height = 1.5;
-        const aspect = img.width / img.height;
-        if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
+        if(img && img.width && img.height) {
+            const aspect = img.width / img.height;
+            if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
+        }
         
         const photoGeo = new THREE.PlaneGeometry(width, height);
         const photoMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
@@ -561,38 +565,48 @@
         const frameGeo = new THREE.BoxGeometry(width + 0.1, height + 0.1, 0.05);
         const frameMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.champagneGold, metalness: 1.0, roughness: 0.2 });
         const frame = new THREE.Mesh(frameGeo, frameMat);
-        frame.name = 'photoFrame'; // 🌟 命名相框，方便后续调整
+        frame.name = 'photoFrame'; 
         
         const group = new THREE.Group(); group.add(frame); group.add(photo);
         const s = 0.8; group.scale.set(s,s,s);
         photoMeshGroup.add(group); particleSystem.push(new Particle(group, 'PHOTO', false));
     }
 
-    // 🌟 核心修复功能：动态更新几何体尺寸以适应新图片
+    // 🌟 核心修复功能：彻底重算 Geometry
     function updatePhotoVisuals(group, texture) {
         if (!group || !texture || !texture.image) return;
 
-        // 1. 计算新尺寸
-        const img = texture.image;
-        let width = 1.5; let height = 1.5;
-        const aspect = img.width / img.height;
-        if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
+        // 1. 获取准确的图片尺寸
+        const imgWidth = texture.image.width;
+        const imgHeight = texture.image.height;
 
-        // 2. 找到 Mesh
+        // 如果图片还没加载好，或者尺寸是0，暂时不处理 (等待下一帧)
+        if (!imgWidth || !imgHeight) return;
+
+        // 2. 计算宽高比
+        const aspect = imgWidth / imgHeight;
+
+        // 3. 设定一个固定的高度基准，根据宽高比算宽度
+        // 这样无论是横图还是竖图，高度都统一，宽度自适应
+        const baseHeight = 1.5; 
+        const geomWidth = baseHeight * aspect; 
+        const geomHeight = baseHeight;
+
+        // 4. 找到并重建 Photo Mesh
         const photo = group.getObjectByName('photoContent');
-        const frame = group.getObjectByName('photoFrame');
-
-        // 3. 重建几何体 (最稳健的方法)
         if (photo) {
-            photo.geometry.dispose(); // 清理旧内存
-            photo.geometry = new THREE.PlaneGeometry(width, height);
+            photo.geometry.dispose(); // 释放旧内存
+            photo.geometry = new THREE.PlaneGeometry(geomWidth, geomHeight);
             photo.material.map = texture;
             photo.material.needsUpdate = true;
         }
 
+        // 5. 找到并重建 Frame Mesh (比照片稍大一圈)
+        const frame = group.getObjectByName('photoFrame');
         if (frame) {
-            frame.geometry.dispose(); // 清理旧内存
-            frame.geometry = new THREE.BoxGeometry(width + 0.1, height + 0.1, 0.05);
+            frame.geometry.dispose(); // 释放旧内存
+            const border = 0.15; // 边框宽度
+            frame.geometry = new THREE.BoxGeometry(geomWidth + border, geomHeight + border, 0.05);
         }
         
         currentPhotoTex = texture;
