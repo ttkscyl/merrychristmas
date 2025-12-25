@@ -156,7 +156,7 @@
 
     let scene, camera, renderer, composer;
     let mainGroup, fireworkGroup;
-    let letterMesh;
+    let letterMesh, snowMesh; 
     let clock = new THREE.Clock();
     let particleSystem = [];
     let fireworks = [];
@@ -178,6 +178,7 @@
         createHighQualityTextures();
         createParticles();
         createDust();
+        createSnow(); 
         createLetter();
 
         loadConfiguredImages();
@@ -345,6 +346,40 @@
         letterMesh = new THREE.Mesh(geometry, material);
         letterMesh.position.set(0, 0, 0); letterMesh.scale.set(0, 0, 0); letterMesh.visible = false; letterMesh.renderOrder = 9999;
         scene.add(letterMesh);
+    }
+
+    function createSnow() {
+        const count = 2000; 
+        const positions = new Float32Array(count * 3);
+        const velocities = []; 
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = (Math.random() - 0.5) * 100; 
+            positions[i * 3 + 1] = (Math.random() - 0.5) * 60 + 20; 
+            positions[i * 3 + 2] = (Math.random() - 0.5) * 60; 
+            velocities.push({
+                y: -(0.5 + Math.random() * 1.5), 
+                x: (Math.random() - 0.5) * 0.2, 
+                z: (Math.random() - 0.5) * 0.2
+            });
+        }
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        geo.userData = { velocities: velocities };
+
+        const mat = new THREE.PointsMaterial({
+            color: 0xffffff,
+            size: 0.8,
+            map: particleTexture,
+            transparent: true,
+            opacity: 0.8, // 初始不透明度
+            depthWrite: false,
+            blending: THREE.AdditiveBlending
+        });
+
+        snowMesh = new THREE.Points(geo, mat);
+        scene.add(snowMesh); 
     }
 
     class Particle {
@@ -537,7 +572,6 @@
             texture.colorSpace = THREE.SRGBColorSpace;
             texPhoto1 = texture;
             currentPhotoTex = texture;
-            // 初始加载时先用第一张图
             addPhotoToScene(texture);
         }, undefined, (err) => { console.warn("Error loading photo.jpg"); });
 
@@ -548,7 +582,6 @@
     }
 
     function addPhotoToScene(texture) {
-        // 初始逻辑，之后会被 updatePhotoVisuals 覆盖
         const img = texture.image;
         let width = 1.5; let height = 1.5;
         if(img && img.width && img.height) {
@@ -572,40 +605,30 @@
         photoMeshGroup.add(group); particleSystem.push(new Particle(group, 'PHOTO', false));
     }
 
-    // 🌟 核心修复功能：彻底重算 Geometry
     function updatePhotoVisuals(group, texture) {
         if (!group || !texture || !texture.image) return;
 
-        // 1. 获取准确的图片尺寸
         const imgWidth = texture.image.width;
         const imgHeight = texture.image.height;
-
-        // 如果图片还没加载好，或者尺寸是0，暂时不处理 (等待下一帧)
         if (!imgWidth || !imgHeight) return;
 
-        // 2. 计算宽高比
         const aspect = imgWidth / imgHeight;
-
-        // 3. 设定一个固定的高度基准，根据宽高比算宽度
-        // 这样无论是横图还是竖图，高度都统一，宽度自适应
         const baseHeight = 1.5; 
         const geomWidth = baseHeight * aspect; 
         const geomHeight = baseHeight;
 
-        // 4. 找到并重建 Photo Mesh
         const photo = group.getObjectByName('photoContent');
         if (photo) {
-            photo.geometry.dispose(); // 释放旧内存
+            photo.geometry.dispose(); 
             photo.geometry = new THREE.PlaneGeometry(geomWidth, geomHeight);
             photo.material.map = texture;
             photo.material.needsUpdate = true;
         }
 
-        // 5. 找到并重建 Frame Mesh (比照片稍大一圈)
         const frame = group.getObjectByName('photoFrame');
         if (frame) {
-            frame.geometry.dispose(); // 释放旧内存
-            const border = 0.15; // 边框宽度
+            frame.geometry.dispose();
+            const border = 0.15;
             frame.geometry = new THREE.BoxGeometry(geomWidth + border, geomHeight + border, 0.05);
         }
         
@@ -653,39 +676,32 @@
             const pinkyOpen = isFingerOpen(20, 18);
             const pinchDist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
 
-            // 1. 抓取 (Pinch) -> Focus 独照 (photo.jpg)
             if (pinchDist < 0.08) {
                 if (STATE.mode !== 'FOCUS') {
                     STATE.mode = 'FOCUS';
                     const photos = particleSystem.filter(p => p.type === 'PHOTO');
                     if(photos.length) {
                         STATE.focusTarget = photos[Math.floor(Math.random()*photos.length)].mesh;
-                        // 🌟 切换回 photo1 并调整相框尺寸
                         if(texPhoto1 && currentPhotoTex !== texPhoto1) {
                             updatePhotoVisuals(STATE.focusTarget, texPhoto1);
                         }
                     }
                 }
             }
-            // 2. 💌 比“1” -> 打开信件 + 展示照片 (photo2.jpeg)
             else if (indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
                 if (STATE.mode !== 'LETTER') {
                     STATE.mode = 'LETTER';
                     const photos = particleSystem.filter(p => p.type === 'PHOTO');
                     if(photos.length) {
                         STATE.focusTarget = photos[0].mesh;
-                        // 🌟 切换到 photo2 并调整相框尺寸
                         if(texPhoto2 && currentPhotoTex !== texPhoto2) {
                             updatePhotoVisuals(STATE.focusTarget, texPhoto2);
                         }
                     }
                 }
             }
-            // 3. ✌️ 比耶 -> 文字 + 烟花
             else if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) { STATE.mode = 'TEXT'; STATE.focusTarget = null; }
-            // 4. 五指张开 -> 散开
             else if (indexOpen && middleOpen && ringOpen && pinkyOpen) { STATE.mode = 'SCATTER'; STATE.focusTarget = null; }
-            // 5. 握拳 -> 树
             else if (!indexOpen && !middleOpen && !ringOpen && !pinkyOpen) { STATE.mode = 'TREE'; STATE.focusTarget = null; }
         } else { STATE.hand.detected = false; }
     }
@@ -719,6 +735,37 @@
         }
 
         particleSystem.forEach(p => p.update(dt, STATE.mode, STATE.focusTarget));
+
+        // 🌟 核心修改：下雪动画逻辑 + 透明度淡入淡出
+        if(snowMesh) {
+            // 1. 确定目标透明度 (Tree模式显示，其他模式隐藏)
+            const targetOpacity = (STATE.mode === 'TREE') ? 0.8 : 0.0;
+            
+            // 2. 线性插值 (Lerp) 实现平滑过渡
+            const currentOpacity = snowMesh.material.opacity;
+            const newOpacity = THREE.MathUtils.lerp(currentOpacity, targetOpacity, 2.0 * dt);
+            snowMesh.material.opacity = newOpacity;
+
+            // 3. 性能优化：完全不可见时隐藏 Mesh
+            snowMesh.visible = newOpacity > 0.01;
+
+            // 4. 只有可见时才计算下落位置
+            if (snowMesh.visible) {
+                const positions = snowMesh.geometry.attributes.position.array;
+                const velocities = snowMesh.geometry.userData.velocities;
+
+                for(let i=0; i<velocities.length; i++) {
+                    positions[i*3 + 1] += velocities[i].y * dt * 5.0; 
+                    positions[i*3] += velocities[i].x * dt * 5.0;
+
+                    if(positions[i*3 + 1] < -30) {
+                        positions[i*3 + 1] = 40;
+                        positions[i*3] = (Math.random() - 0.5) * 100;
+                    }
+                }
+                snowMesh.geometry.attributes.position.needsUpdate = true;
+            }
+        }
 
         if (letterMesh) {
             if (STATE.mode === 'LETTER') {
