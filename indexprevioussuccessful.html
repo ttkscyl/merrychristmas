@@ -59,8 +59,8 @@
             position: absolute; 
             bottom: 20px; 
             right: 20px; 
-            width: 240px; 
-            height: 180px;
+            width: 160px; 
+            height: 120px;
             z-index: 20;
             border: 2px solid rgba(212, 175, 55, 0.5);
             border-radius: 10px;
@@ -96,14 +96,14 @@
 
 <div id="loader">
     <div class="spinner"></div>
-    <div class="loader-text">加载中 - 稍等一下哈...</div>
+    <div class="loader-text">Loading Christmas Magic...</div>
 </div>
 
 <div id="canvas-container"></div>
 
 <div id="ui-layer">
-    <h1>Merry Christmas 圣诞快乐千千！</h1>
-    <div class="hint-text">如果你忘了手势:'👍'圣诞树 | '🖐️'树炸啦 | '👌'照片 | '☝️'信 | '✌️'烟花</div>
+    <h1>Merry Christmas</h1>
+    <div class="hint-text">Gestures: '☝️' Letter & Photo | '✌️' Fireworks | '👌' Focus Photo | '🖐️' Scatter</div>
 </div>
 
 <div id="webcam-wrapper">
@@ -125,8 +125,8 @@
     // ⚙️ 配置区域
     // ==========================================
     const ASSETS = {
-        music: "./music.mp3"
-        // 图片配置移动到了 loadConfiguredImages 函数中处理
+        music: "./music.mp3",
+        images: ["./photo.jpg"]
     };
 
     const CONFIG = {
@@ -144,7 +144,7 @@
         text: { string: "Merry Christmas", size: 10 },
         letter: {
             title: "To 千千",
-            content: "圣诞节快乐！\n遇见你，我很开心！\n\n\n\n爱你,\ncyl,\n2025.12.11"
+            content: "May this Christmas bring you happiness and joy.\n\n愿你的圣诞充满温馨与快乐，\n\n爱你,\nAndy,\n2025.12.11"
         }
     };
 
@@ -166,9 +166,6 @@
     let caneTexture, stockingTexture, particleTexture, giftTexture;
     let textPoints = [];
 
-    // 🌟 新增：存储两个纹理对象
-    let texPhoto1, texPhoto2;
-
     async function init() {
         initThree();
         setupEnvironment();
@@ -181,7 +178,6 @@
         createDust();
         createLetter();
 
-        // 加载图片
         loadConfiguredImages();
 
         setupPostProcessing();
@@ -399,15 +395,18 @@
                 if(this.type === 'PHOTO') targetScale = this.baseScale * 1.2;
             }
             else if (mode === 'LETTER') {
+                // 🌟 新增逻辑：在 LETTER 模式下，照片移动到右侧
                 if (this.mesh === focusTargetMesh) {
+                    // 坐标：右侧 (x=8), 高度适中 (y=0), 靠近相机 (z=25)
                     const desiredWorldPos = new THREE.Vector3(8, 0, 25);
+                    // 转换为相对于主组的本地坐标
                     const invMatrix = new THREE.Matrix4().copy(mainGroup.matrixWorld).invert();
                     target = desiredWorldPos.applyMatrix4(invMatrix);
-                    targetScale = 3.5; 
+                    targetScale = 3.5; // 放大照片
                     lerpSpeed = 4.0;
-                    this.mesh.lookAt(camera.position);
+                    this.mesh.lookAt(camera.position); // 照片面向相机
                 } else {
-                    target = this.posScatter;
+                    target = this.posScatter; // 其他粒子散开
                 }
             }
             else if (mode === 'TEXT') {
@@ -534,22 +533,16 @@
         }
     }
 
-    // 🌟 更新：手动加载两张图片
     function loadConfiguredImages() {
         const loader = new THREE.TextureLoader();
-
-        // 加载默认照片 photo.jpg
-        loader.load("./photo.jpg", (texture) => {
-            texture.colorSpace = THREE.SRGBColorSpace;
-            texPhoto1 = texture;
-            addPhotoToScene(texture); // 初始创建时使用 photo.jpg
-        }, undefined, (err) => { console.warn("Error loading photo.jpg"); });
-
-        // 预加载第二张照片 photo2.jpeg
-        loader.load("./photo2.jpeg", (texture) => {
-            texture.colorSpace = THREE.SRGBColorSpace;
-            texPhoto2 = texture; // 存起来，之后手势触发时用
-        }, undefined, (err) => { console.warn("Error loading photo2.jpeg"); });
+        if (ASSETS.images && ASSETS.images.length > 0) {
+            ASSETS.images.forEach(path => {
+                loader.load(path, (texture) => {
+                    texture.colorSpace = THREE.SRGBColorSpace;
+                    addPhotoToScene(texture);
+                }, undefined, (err) => { console.warn("Could not load default image:", path); });
+            });
+        }
     }
 
     function addPhotoToScene(texture) {
@@ -559,15 +552,10 @@
         if (aspect >= 1) { height = width / aspect; } else { width = height * aspect; }
         const photoGeo = new THREE.PlaneGeometry(width, height);
         const photoMat = new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide });
-        const photo = new THREE.Mesh(photoGeo, photoMat); 
-        photo.position.z = 0.05;
-        // 🌟 新增：给照片Mesh一个名字，方便后续找到它
-        photo.name = 'photoContent'; 
-
+        const photo = new THREE.Mesh(photoGeo, photoMat); photo.position.z = 0.05;
         const frameGeo = new THREE.BoxGeometry(width + 0.1, height + 0.1, 0.05);
         const frameMat = new THREE.MeshStandardMaterial({ color: CONFIG.colors.champagneGold, metalness: 1.0, roughness: 0.2 });
         const frame = new THREE.Mesh(frameGeo, frameMat);
-        
         const group = new THREE.Group(); group.add(frame); group.add(photo);
         const s = 0.8; group.scale.set(s,s,s);
         photoMeshGroup.add(group); particleSystem.push(new Particle(group, 'PHOTO', false));
@@ -601,7 +589,6 @@
         requestAnimationFrame(predictWebcam);
     }
 
-    // 🌟 更新：手势逻辑中加入图片切换
     function processGestures(result) {
         if (result.landmarks && result.landmarks.length > 0) {
             STATE.hand.detected = true;
@@ -615,35 +602,20 @@
             const pinkyOpen = isFingerOpen(20, 18);
             const pinchDist = Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y);
 
-            // 1. 抓取 (Pinch) -> Focus 独照 (photo.jpg)
+            // 1. 抓取 (Pinch) -> Focus 独照 (保持不变)
             if (pinchDist < 0.08) {
                 if (STATE.mode !== 'FOCUS') {
                     STATE.mode = 'FOCUS';
                     const photos = particleSystem.filter(p => p.type === 'PHOTO');
-                    if(photos.length) {
-                        STATE.focusTarget = photos[Math.floor(Math.random()*photos.length)].mesh;
-                        // 切换回 photo1
-                        if(texPhoto1) {
-                            const plane = STATE.focusTarget.getObjectByName('photoContent');
-                            if(plane) plane.material.map = texPhoto1;
-                        }
-                    }
+                    if(photos.length) STATE.focusTarget = photos[Math.floor(Math.random()*photos.length)].mesh;
                 }
             }
-            // 2. 💌 比“1” -> 打开信件 + 展示照片 (photo2.jpeg)
+            // 2. 💌 比“1” -> 打开信件 + 展示照片 (新功能)
             else if (indexOpen && !middleOpen && !ringOpen && !pinkyOpen) {
-                if (STATE.mode !== 'LETTER') {
-                    STATE.mode = 'LETTER';
-                    const photos = particleSystem.filter(p => p.type === 'PHOTO');
-                    if(photos.length) {
-                        STATE.focusTarget = photos[0].mesh;
-                        // 切换到 photo2
-                        if(texPhoto2) {
-                            const plane = STATE.focusTarget.getObjectByName('photoContent');
-                            if(plane) plane.material.map = texPhoto2;
-                        }
-                    }
-                }
+                STATE.mode = 'LETTER';
+                // 🌟 新增：找到照片粒子并设置为 focusTarget，以便 Particle.update 将其移动到旁边
+                const photos = particleSystem.filter(p => p.type === 'PHOTO');
+                if(photos.length) STATE.focusTarget = photos[0].mesh;
             }
             // 3. ✌️ 比耶 -> 文字 + 烟花
             else if (indexOpen && middleOpen && !ringOpen && !pinkyOpen) { STATE.mode = 'TEXT'; STATE.focusTarget = null; }
@@ -687,12 +659,15 @@
         if (letterMesh) {
             if (STATE.mode === 'LETTER') {
                 letterMesh.visible = true;
+                // 🌟 修改：信件移动到左侧 (x = -6)，与右侧的照片形成对比
                 letterMesh.position.lerp(new THREE.Vector3(-6, 0, 10), 3.0 * dt);
                 letterMesh.scale.lerp(new THREE.Vector3(1, 1, 1), 3.0 * dt);
                 letterMesh.rotation.y = Math.sin(clock.elapsedTime * 0.5) * 0.05; 
+                // 稍微修正朝向，使其看起来自然
                 letterMesh.lookAt(camera.position.x - 2, camera.position.y, camera.position.z);
             } else {
                 letterMesh.scale.lerp(new THREE.Vector3(0, 0, 0), 5.0 * dt);
+                // 重置位置回中心，方便下次动画
                 letterMesh.position.lerp(new THREE.Vector3(0, 0, 0), 5.0 * dt); 
                 if(letterMesh.scale.x < 0.01) letterMesh.visible = false;
             }
